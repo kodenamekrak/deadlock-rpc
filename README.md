@@ -3,7 +3,7 @@
 
   # Deadlock RPC
 
-  Discord Rich Presence for Deadlock — automatically shows your current hero, game state, and match mode on your Discord profile in real time.
+  Discord Rich Presence for Deadlock. Automatically shows your current hero, game state, and match mode on your Discord profile in real time.
 
   [![Latest Release](https://img.shields.io/github/v/release/HeyTariq/deadlock-rpc?&label=release)](https://github.com/HeyTariq/deadlock-rpc/releases/latest)
   [![Downloads](https://img.shields.io/github/downloads/HeyTariq/deadlock-rpc/total?)](https://github.com/HeyTariq/deadlock-rpc/releases)
@@ -37,13 +37,13 @@
 
 ## Features
 
-- **Hero display** — current hero name and card image
-- **Game state tracking** — Hideout, In Queue, Match Intro, In Match, Post Match, Spectating
-- **Match mode detection** — Standard, Street Brawl, Training Range, and more
-- **Auto-launch** — launches Deadlock with the required flag automatically
-- **Auto-exit** — closes itself when you close Deadlock
-- **Statlocker button** — optional clickable button on your presence card linking to your match history on [statlocker.gg](https://statlocker.gg)
-- **Customizable** — presence text, timer, hero display, poll rate, and more via `config.toml`
+- **Hero display:** current hero name and card image
+- **Game state tracking:** Hideout, In Queue, Match Intro, In Match, Post Match, Spectating
+- **Match mode detection:** Standard, Street Brawl, Training Range, and more
+- **Auto-launch:** launches Deadlock with the required flag automatically
+- **Auto-exit:** closes itself when you close Deadlock
+- **Statlocker button:** optional clickable button on your presence card linking to your match history on [statlocker.gg](https://statlocker.gg)
+- **Customizable:** presence text, timer, hero display, poll rate, and more via `config.toml`
 
 ## Installation
 
@@ -54,7 +54,7 @@
 3. Run the binary inside the extracted folder:
    - **Windows:** double-click `deadlock-rpc.exe`
    - **Linux:** `chmod +x deadlock-rpc && ./deadlock-rpc`
-4. A shortcut named **Deadlock RPC** is created in the extracted folder — move it to your desktop or wherever is convenient
+4. A shortcut named **Deadlock RPC** is created in the extracted folder. Move it to your desktop or wherever is convenient
 5. Deadlock launches with Rich Presence active
 
 From this point forward, use the **Deadlock RPC** shortcut instead of launching Deadlock directly. Be sure to keep the executable within the extracted folder as it writes logs to the `logs/` directory.
@@ -79,7 +79,7 @@ A **`config.toml`** is included in the release zip next to the executable with a
 > [!NOTE]
 > If your config file is corrupt or causes issues, delete it and launch the application again to regenerate it with all defaults.
 
-When a release renames or restructures config keys, the release includes a migration that automatically updates your config on the next launch — no manual re-apply needed.
+When a release renames or restructures config keys, the release includes a migration that automatically updates your config on the next launch, no manual re-apply needed.
 
 ### General
 
