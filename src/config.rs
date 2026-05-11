@@ -18,13 +18,26 @@ pub struct GeneralConfig {
     pub discord_update_interval_s: u64,
 }
 
+/// Which hero portrait art style to show in Discord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HeroPortraitStyle {
+    /// Standard hero card image.
+    #[default]
+    Normal,
+    /// Gloat/celebration portrait (wider crop).
+    Gloat,
+    /// Critical/combat portrait.
+    Critical,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct PresenceConfig {
     pub show_elapsed_timer: bool,
     pub show_hero_image: bool,
     pub show_statlocker_button: bool,
-    pub show_hero_gloat_portrait: bool,
+    pub hero_portrait_style: HeroPortraitStyle,
     pub details_with_hero: String,
     pub details_without_hero: String,
     pub status: StatusStrings,
@@ -70,7 +83,7 @@ impl Default for PresenceConfig {
             show_elapsed_timer: true,
             show_hero_image: true,
             show_statlocker_button: false,
-            show_hero_gloat_portrait: false,
+            hero_portrait_style: HeroPortraitStyle::Normal,
             details_with_hero: "Playing as {hero}".to_string(),
             details_without_hero: "{phase}".to_string(),
             status: StatusStrings::default(),
@@ -121,7 +134,7 @@ fn config_path() -> PathBuf {
 }
 
 // Increment this when a migration is added that fixes existing key values.
-const CURRENT_CONFIG_VERSION: i64 = 1;
+const CURRENT_CONFIG_VERSION: i64 = 2;
 
 // Recursively fills missing keys in `user` from `defaults`.
 // Returns true if any key was added.
@@ -213,6 +226,32 @@ fn update_config_file(path: &std::path::Path, text: &str) {
             }
         }
         if let Some(toml::Value::Table(general)) = val.get_mut("general") {
+            general.insert("config_version".to_string(), toml::Value::Integer(1));
+            changed = true;
+        }
+    }
+
+    // Migration v2: replace show_hero_gloat_portrait (bool) with hero_portrait_style (string enum).
+    if version < 2 {
+        if let Some(toml::Value::Table(presence)) = val.get_mut("presence") {
+            let was_gloat = presence
+                .get("show_hero_gloat_portrait")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            presence.remove("show_hero_gloat_portrait");
+            if !presence.contains_key("hero_portrait_style") {
+                let style = if was_gloat { "gloat" } else { "normal" };
+                presence.insert(
+                    "hero_portrait_style".to_string(),
+                    toml::Value::String(style.to_string()),
+                );
+                log::info!(
+                    "[config] Migration v2: converted show_hero_gloat_portrait to hero_portrait_style = \"{style}\""
+                );
+                changed = true;
+            }
+        }
+        if let Some(toml::Value::Table(general)) = val.get_mut("general") {
             general.insert(
                 "config_version".to_string(),
                 toml::Value::Integer(CURRENT_CONFIG_VERSION),
@@ -238,35 +277,4 @@ fn update_config_file(path: &std::path::Path, text: &str) {
     }
 }
 
-const DEFAULT_TOML: &str = r#"[general]
-launch_game_on_start = true
-exit_when_game_closes = true
-game_log_poll_interval_ms = 500
-discord_update_interval_s = 5
-config_version = 1
-
-[presence]
-show_elapsed_timer = true
-show_hero_image = true
-show_statlocker_button = false
-show_hero_gloat_portrait = false
-details_with_hero = "Playing as {hero}"
-details_without_hero = "{phase}"
-
-[presence.status]
-game_not_running = "Not Running"
-in_main_menu = "Browsing the Main Menu"
-in_hideout = "In the Hideout"
-in_matchmaking = "Searching for a Match..."
-loading_into_match = "{mode} - Loading into Match"
-in_match = "In Match: {mode}"
-match_location_label = "the Cursed Apple"
-post_match = "Reviewing Match Results"
-spectating = "Spectating a Match"
-
-[images]
-fallback_large_image = "deadlock_logo"
-fallback_large_image_tooltip = "Deadlock"
-corner_image = "deadlock_logo"
-corner_image_tooltip = "Deadlock RPC"
-"#;
+pub const DEFAULT_TOML: &str = include_str!("default_config.toml");
