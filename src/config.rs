@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -29,6 +30,25 @@ pub enum HeroPortraitStyle {
     Gloat,
     /// Critical/combat portrait.
     Critical,
+}
+
+impl HeroPortraitStyle {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            HeroPortraitStyle::Normal => 0,
+            HeroPortraitStyle::Gloat => 1,
+            HeroPortraitStyle::Critical => 2,
+        }
+    }
+
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => HeroPortraitStyle::Gloat,
+            2 => HeroPortraitStyle::Critical,
+            _ => HeroPortraitStyle::Normal,
+        }
+    }
+
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +136,72 @@ impl Default for ImagesConfig {
     }
 }
 
+pub struct SharedBools {
+    pub launch_game_on_start: AtomicBool,
+    pub exit_when_game_closes: AtomicBool,
+    pub show_hero_image: AtomicBool,
+    pub show_statlocker_button: AtomicBool,
+    pub hero_portrait_style: AtomicU8,
+    // Set by the tray when a presence setting changes so the RPC loop wakes early.
+    pub settings_dirty: AtomicBool,
+}
+
+impl SharedBools {
+    pub fn from_config(cfg: &Config) -> Self {
+        Self {
+            launch_game_on_start: AtomicBool::new(cfg.general.launch_game_on_start),
+            exit_when_game_closes: AtomicBool::new(cfg.general.exit_when_game_closes),
+            show_hero_image: AtomicBool::new(cfg.presence.show_hero_image),
+            show_statlocker_button: AtomicBool::new(cfg.presence.show_statlocker_button),
+            hero_portrait_style: AtomicU8::new(cfg.presence.hero_portrait_style.as_u8()),
+            settings_dirty: AtomicBool::new(false),
+        }
+    }
+}
+
+// Reads config.toml, flips one boolean key in the given section, and writes it back.
+pub fn set_config_bool(section: &str, key: &str, value: bool) {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("[config] Could not read config for update: {e}");
+            return;
+        }
+    };
+    let mut val: toml::Value = match toml::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(toml::Value::Table(table)) = val.get_mut(section) {
+        table.insert(key.to_string(), toml::Value::Boolean(value));
+    }
+    if let Ok(new_text) = toml::to_string_pretty(&val) {
+        let _ = std::fs::write(&path, new_text);
+    }
+}
+
+pub fn set_config_string(section: &str, key: &str, value: &str) {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("[config] Could not read config for update: {e}");
+            return;
+        }
+    };
+    let mut val: toml::Value = match toml::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(toml::Value::Table(table)) = val.get_mut(section) {
+        table.insert(key.to_string(), toml::Value::String(value.to_string()));
+    }
+    if let Ok(new_text) = toml::to_string_pretty(&val) {
+        let _ = std::fs::write(&path, new_text);
+    }
+}
+
 pub fn apply_vars(template: &str, vars: &[(&str, &str)]) -> String {
     let mut result = template.to_string();
     for (key, value) in vars {
@@ -188,7 +274,7 @@ pub fn load() -> Config {
                         .and_then(|t| toml::from_str::<Config>(&t).ok())
                         .unwrap_or(cfg)
                 } else {
-                cfg
+                    cfg
                 }
             }
             Err(e) => {

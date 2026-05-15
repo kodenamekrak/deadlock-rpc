@@ -16,6 +16,7 @@ use game_state::{GamePhase, GameState, MatchMode};
 use hero_api::{HeroCache, HeroData};
 use log::{info, warn};
 use log_watcher::LogWatcher;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -107,10 +108,11 @@ fn exit_discord(client: &mut DiscordIpcClient) {
     let _ = client.close();
 }
 
-fn run_rpc_loop(state: Arc<Mutex<GameState>>, cfg: config::Config) {
+fn run_rpc_loop(state: Arc<Mutex<GameState>>, cfg: config::Config, shared: Arc<config::SharedBools>) {
     info!("[discord] Connecting...");
     let mut client = connect_discord(DISCORD_APP_ID);
-    let mut hero_cache = HeroCache::new(cfg.presence.hero_portrait_style);
+    let mut current_portrait = cfg.presence.hero_portrait_style;
+    let mut hero_cache = HeroCache::new(current_portrait);
     let mut last_state: Option<LastRpcState> = None;
     let mut game_was_running = false;
 
@@ -132,7 +134,7 @@ fn run_rpc_loop(state: Arc<Mutex<GameState>>, cfg: config::Config) {
             game_was_running = true;
         } else if game_was_running {
             info!("[deadlock-rpc] Game closed.");
-            if cfg.general.exit_when_game_closes {
+            if shared.exit_when_game_closes.load(Ordering::Relaxed) {
                 exit_discord(&mut client);
 std::process::exit(0);
             }
@@ -140,13 +142,36 @@ std::process::exit(0);
 
         let current = (phase, match_mode, hero_key.clone(), party_size, map_name, account_id);
         if last_state.as_ref() == Some(&current) {
-            thread::sleep(update_interval);
-            continue;
+            let deadline = std::time::Instant::now() + update_interval;
+            let step = Duration::from_millis(500);
+            let mut dirty = false;
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                thread::sleep(step.min(remaining));
+                if shared.settings_dirty.swap(false, Ordering::Relaxed) {
+                    dirty = true;
+                    break;
+                }
+            }
+            if !dirty {
+                continue;
+            }
+        }
+
+        let new_portrait = config::HeroPortraitStyle::from_u8(
+            shared.hero_portrait_style.load(Ordering::Relaxed)
+        );
+        if new_portrait != current_portrait {
+            hero_cache.set_portrait_style(new_portrait);
+            current_portrait = new_portrait;
         }
 
         // Respect show_hero: if disabled, never pass hero data for display.
         let effective_hero_data: Option<&HeroData> =
-            if cfg.presence.show_hero_image && phase.shows_hero() {
+            if shared.show_hero_image.load(Ordering::Relaxed) && phase.shows_hero() {
                 hero_key.as_deref().and_then(|k| hero_cache.get_or_fetch(k))
             } else {
                 None
@@ -194,14 +219,14 @@ std::process::exit(0);
             state_opt.unwrap_or("none"),
             party_size,
             account_id.map_or("null".to_string(), |id| id.to_string()),
-            if cfg.presence.show_statlocker_button {
+            if shared.show_statlocker_button.load(Ordering::Relaxed) {
                 if account_id.is_some() { "enabled" } else { "enabled (awaiting Steam ID)" }
             } else {
                 "disabled"
             }
         );
 
-        let elapsed_start = if cfg.presence.show_elapsed_timer { Some(rpc_start_time) } else { None };
+        let elapsed_start = Some(rpc_start_time);
         let party = if show_party { Some(party_size) } else { None };
         let act = build_activity(
             details,
@@ -210,7 +235,7 @@ std::process::exit(0);
             elapsed_start,
             party,
             &cfg.images,
-            StatlockerOpts { account_id, show_button: cfg.presence.show_statlocker_button },
+            StatlockerOpts { account_id, show_button: shared.show_statlocker_button.load(Ordering::Relaxed) },
         );
 
         match client.set_activity(act) {
@@ -253,6 +278,8 @@ fn main() {
     let cfg = config::load();
     info!("[config] Loaded from config.toml");
 
+    let shared = Arc::new(config::SharedBools::from_config(&cfg));
+
     let no_launch_flag = args.iter().any(|a| a == "--no-launch");
     // --no-launch CLI flag always overrides auto_launch, even if config enables it.
     let no_launch = no_launch_flag || !cfg.general.launch_game_on_start;
@@ -294,10 +321,11 @@ fn main() {
 
     {
         let state = Arc::clone(&state);
-        thread::spawn(move || run_rpc_loop(state, cfg));
+        let shared = Arc::clone(&shared);
+        thread::spawn(move || run_rpc_loop(state, cfg, shared));
     }
 
     // Block the main thread on the tray icon for the lifetime of the process.
     // The only exit is the user clicking Quit, which calls process::exit.
-    tray::run();
+    tray::run(Arc::clone(&shared));
 }
