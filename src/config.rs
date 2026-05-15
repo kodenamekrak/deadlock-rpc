@@ -34,7 +34,6 @@ pub enum HeroPortraitStyle {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct PresenceConfig {
-    pub show_elapsed_timer: bool,
     pub show_hero_image: bool,
     pub show_statlocker_button: bool,
     pub hero_portrait_style: HeroPortraitStyle,
@@ -80,7 +79,6 @@ impl Default for GeneralConfig {
 impl Default for PresenceConfig {
     fn default() -> Self {
         Self {
-            show_elapsed_timer: true,
             show_hero_image: true,
             show_statlocker_button: false,
             hero_portrait_style: HeroPortraitStyle::Normal,
