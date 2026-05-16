@@ -16,7 +16,7 @@ ksni = "0.2"
 discord-rich-presence = "1.1"
 regex = "1"
 dirs = "5"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
+ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.8", features = ["parse", "display"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

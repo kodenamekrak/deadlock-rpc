@@ -26,16 +26,15 @@ struct ApiImages {
 
 pub struct HeroCache {
     map: HashMap<String, HeroData>,
-    client: reqwest::blocking::Client,
+    client: ureq::Agent,
     portrait_style: HeroPortraitStyle,
 }
 
 impl HeroCache {
     pub fn new(portrait_style: HeroPortraitStyle) -> Self {
-        let client = reqwest::blocking::Client::builder()
+        let client = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .expect("failed to build HTTP client");
+            .build();
         Self { map: HashMap::new(), client, portrait_style }
     }
 
@@ -65,7 +64,7 @@ impl HeroCache {
     }
 }
 
-fn fetch(client: &reqwest::blocking::Client, hero_key: &str, portrait_style: HeroPortraitStyle) -> Result<HeroData, Box<dyn std::error::Error>> {
+fn fetch(client: &ureq::Agent, hero_key: &str, portrait_style: HeroPortraitStyle) -> Result<HeroData, Box<dyn std::error::Error>> {
     debug!("[api] Fetching: {hero_key}");
 
     if let Ok(data) = fetch_by_name(client, hero_key, portrait_style) {
@@ -122,10 +121,10 @@ fn dict_lookup(asset_key: &str) -> Option<&'static str> {
     }
 }
 
-fn fetch_by_name(client: &reqwest::blocking::Client, name: &str, portrait_style: HeroPortraitStyle) -> Result<HeroData, Box<dyn std::error::Error>> {
+fn fetch_by_name(client: &ureq::Agent, name: &str, portrait_style: HeroPortraitStyle) -> Result<HeroData, Box<dyn std::error::Error>> {
     let url = format!("https://assets.deadlock-api.com/v2/heroes/by-name/{name}");
     debug!("[api] GET {url}");
-    let hero: ApiHero = client.get(&url).send()?.json()?;
+    let hero: ApiHero = client.get(&url).call()?.into_json()?;
     let images = hero.images.ok_or("hero not found")?;
     let icon_url = match portrait_style {
         HeroPortraitStyle::Normal => {

@@ -130,12 +130,12 @@ pub fn check_on_startup() {
 fn try_check() -> Result<(), Box<dyn std::error::Error>> {
     info!("[updater] Checking for updates (current: v{CURRENT_VERSION})");
 
-    let client = reqwest::blocking::Client::builder()
+    let client = ureq::AgentBuilder::new()
         .user_agent(concat!("deadlock-rpc/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(8))
-        .build()?;
+        .build();
 
-    let release: Release = client.get(RELEASES_API).send()?.json()?;
+    let release: Release = client.get(RELEASES_API).call()?.into_json()?;
     info!("[updater] Latest release: {}", release.tag_name);
 
     if !is_newer(&release.tag_name) {
@@ -164,7 +164,8 @@ fn try_check() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("[updater] Downloading {}", asset.browser_download_url);
 
-    let zip_bytes = client.get(&asset.browser_download_url).send()?.bytes()?;
+    let mut zip_bytes = Vec::new();
+    client.get(&asset.browser_download_url).call()?.into_reader().read_to_end(&mut zip_bytes)?;
     info!("[updater] Downloaded {} bytes, verifying checksum...", zip_bytes.len());
 
     let digest = asset
