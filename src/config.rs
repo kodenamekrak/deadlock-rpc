@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -31,10 +32,28 @@ pub enum HeroPortraitStyle {
     Critical,
 }
 
+impl HeroPortraitStyle {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            HeroPortraitStyle::Normal => 0,
+            HeroPortraitStyle::Gloat => 1,
+            HeroPortraitStyle::Critical => 2,
+        }
+    }
+
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => HeroPortraitStyle::Gloat,
+            2 => HeroPortraitStyle::Critical,
+            _ => HeroPortraitStyle::Normal,
+        }
+    }
+
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct PresenceConfig {
-    pub show_elapsed_timer: bool,
     pub show_hero_image: bool,
     pub show_statlocker_button: bool,
     pub hero_portrait_style: HeroPortraitStyle,
@@ -80,7 +99,6 @@ impl Default for GeneralConfig {
 impl Default for PresenceConfig {
     fn default() -> Self {
         Self {
-            show_elapsed_timer: true,
             show_hero_image: true,
             show_statlocker_button: false,
             hero_portrait_style: HeroPortraitStyle::Normal,
@@ -118,6 +136,72 @@ impl Default for ImagesConfig {
     }
 }
 
+pub struct SharedBools {
+    pub launch_game_on_start: AtomicBool,
+    pub exit_when_game_closes: AtomicBool,
+    pub show_hero_image: AtomicBool,
+    pub show_statlocker_button: AtomicBool,
+    pub hero_portrait_style: AtomicU8,
+    // Set by the tray when a presence setting changes so the RPC loop wakes early.
+    pub settings_dirty: AtomicBool,
+}
+
+impl SharedBools {
+    pub fn from_config(cfg: &Config) -> Self {
+        Self {
+            launch_game_on_start: AtomicBool::new(cfg.general.launch_game_on_start),
+            exit_when_game_closes: AtomicBool::new(cfg.general.exit_when_game_closes),
+            show_hero_image: AtomicBool::new(cfg.presence.show_hero_image),
+            show_statlocker_button: AtomicBool::new(cfg.presence.show_statlocker_button),
+            hero_portrait_style: AtomicU8::new(cfg.presence.hero_portrait_style.as_u8()),
+            settings_dirty: AtomicBool::new(false),
+        }
+    }
+}
+
+// Reads config.toml, flips one boolean key in the given section, and writes it back.
+pub fn set_config_bool(section: &str, key: &str, value: bool) {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("[config] Could not read config for update: {e}");
+            return;
+        }
+    };
+    let mut val: toml::Value = match toml::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(toml::Value::Table(table)) = val.get_mut(section) {
+        table.insert(key.to_string(), toml::Value::Boolean(value));
+    }
+    if let Ok(new_text) = toml::to_string_pretty(&val) {
+        let _ = std::fs::write(&path, new_text);
+    }
+}
+
+pub fn set_config_string(section: &str, key: &str, value: &str) {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("[config] Could not read config for update: {e}");
+            return;
+        }
+    };
+    let mut val: toml::Value = match toml::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(toml::Value::Table(table)) = val.get_mut(section) {
+        table.insert(key.to_string(), toml::Value::String(value.to_string()));
+    }
+    if let Ok(new_text) = toml::to_string_pretty(&val) {
+        let _ = std::fs::write(&path, new_text);
+    }
+}
+
 pub fn apply_vars(template: &str, vars: &[(&str, &str)]) -> String {
     let mut result = template.to_string();
     for (key, value) in vars {
@@ -126,7 +210,7 @@ pub fn apply_vars(template: &str, vars: &[(&str, &str)]) -> String {
     result
 }
 
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("config.toml")))
@@ -183,8 +267,15 @@ pub fn load() -> Config {
         }
         Ok(text) => match toml::from_str::<Config>(&text) {
             Ok(cfg) => {
-                update_config_file(&path, &text);
-                cfg
+                if update_config_file(&path, &text) {
+                    // Re-read so this session uses the migrated values, not the pre-migration ones.
+                    std::fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|t| toml::from_str::<Config>(&t).ok())
+                        .unwrap_or(cfg)
+                } else {
+                    cfg
+                }
             }
             Err(e) => {
                 log::warn!("[config] config.toml parse error: {e} — using defaults");
@@ -195,12 +286,13 @@ pub fn load() -> Config {
 }
 
 // Applies pending migrations and fills missing keys in a single write pass.
-fn update_config_file(path: &std::path::Path, text: &str) {
+// Returns true if the file was rewritten.
+fn update_config_file(path: &std::path::Path, text: &str) -> bool {
     let Ok(mut val) = toml::from_str::<toml::Value>(text) else {
-        return;
+        return false;
     };
     let Ok(defaults) = toml::from_str::<toml::Value>(DEFAULT_TOML) else {
-        return;
+        return false;
     };
 
     let version = val
@@ -265,15 +357,24 @@ fn update_config_file(path: &std::path::Path, text: &str) {
     }
 
     if !changed {
-        return;
+        return false;
     }
 
     match toml::to_string_pretty(&val) {
         Ok(new_text) => match std::fs::write(path, new_text) {
-            Ok(_) => log::info!("[config] config.toml updated"),
-            Err(e) => log::warn!("[config] Could not update config.toml: {e}"),
+            Ok(_) => {
+                log::info!("[config] config.toml updated");
+                true
+            }
+            Err(e) => {
+                log::warn!("[config] Could not update config.toml: {e}");
+                false
+            }
         },
-        Err(e) => log::warn!("[config] Could not serialize config: {e}"),
+        Err(e) => {
+            log::warn!("[config] Could not serialize config: {e}");
+            false
+        }
     }
 }
 

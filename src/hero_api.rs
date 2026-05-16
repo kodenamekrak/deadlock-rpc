@@ -39,6 +39,13 @@ impl HeroCache {
         Self { map: HashMap::new(), client, portrait_style }
     }
 
+    pub fn set_portrait_style(&mut self, style: HeroPortraitStyle) {
+        if self.portrait_style != style {
+            self.portrait_style = style;
+            self.map.clear();
+        }
+    }
+
     // Returns cached data if available, otherwise fetches from the API using the hero class_name.
     pub fn get_or_fetch(&mut self, hero_key: &str) -> Option<&HeroData> {
         use std::collections::hash_map::Entry;

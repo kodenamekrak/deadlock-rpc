@@ -7,7 +7,6 @@ discord_update_interval_s = 5
 config_version = 2
 
 [presence]
-show_elapsed_timer = true
 show_hero_image = true
 # Show a Statlocker button when your Steam ID is detected in the game log.
 show_statlocker_button = false
