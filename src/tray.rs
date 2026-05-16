@@ -122,7 +122,6 @@ mod linux {
                             ..Default::default()
                         }
                         .into(),
-                        ksni::MenuItem::Separator,
                         SubMenu {
                             label: "Hero Portrait Style".to_string(),
                             submenu: {
@@ -181,6 +180,16 @@ mod linux {
                                     .into(),
                                 ]
                             },
+                            ..Default::default()
+                        }
+                        .into(),
+                        ksni::MenuItem::Separator,
+                        StandardItem {
+                            label: "Open Config File".to_string(),
+                            activate: Box::new(|_| {
+                                let path = crate::config::config_path();
+                                let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+                            }),
                             ..Default::default()
                         }
                         .into(),
@@ -316,11 +325,13 @@ mod windows {
                 &PredefinedMenuItem::separator(),
                 &hero_item,
                 &statlocker_item,
-                &PredefinedMenuItem::separator(),
                 &portrait_menu,
+                &PredefinedMenuItem::separator(),
+                &open_config_item,
             ])
             .unwrap();
 
+        let open_config_item = MenuItem::new("Open Config File", true, None);
         let quit_item = MenuItem::new("Quit", true, None);
 
         let launch_id = launch_item.id().clone();
@@ -330,6 +341,7 @@ mod windows {
         let portrait_normal_id = portrait_normal_item.id().clone();
         let portrait_gloat_id = portrait_gloat_item.id().clone();
         let portrait_critical_id = portrait_critical_item.id().clone();
+        let open_config_id = open_config_item.id().clone();
         let quit_id = quit_item.id().clone();
 
         let menu = Menu::new();
@@ -356,7 +368,14 @@ mod windows {
                     DispatchMessageW(&msg);
                 }
                 while let Ok(event) = MenuEvent::receiver().try_recv() {
-                    if event.id == quit_id {
+                    if event.id == open_config_id {
+                        let path = crate::config::config_path();
+                        if let Some(p) = path.to_str() {
+                            let _ = std::process::Command::new("cmd")
+                                .args(["/c", "start", "", p])
+                                .spawn();
+                        }
+                    } else if event.id == quit_id {
                         std::process::exit(0);
                     } else if event.id == launch_id {
                         let new_val = !shared.launch_game_on_start.fetch_xor(true, Ordering::Relaxed);

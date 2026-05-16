@@ -210,7 +210,7 @@ pub fn apply_vars(template: &str, vars: &[(&str, &str)]) -> String {
     result
 }
 
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("config.toml")))
