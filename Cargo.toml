@@ -11,6 +11,7 @@ winapi = { version = "0.3", features = ["winuser", "tlhelp32", "processthreadsap
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = "0.2"
+notify-rust = "4"
 
 [dependencies]
 discord-rich-presence = "1.1"
@@ -20,7 +21,6 @@ ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.8", features = ["parse", "display"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-notify-rust = "4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 log = "0.4"
 simplelog = "0.12"
