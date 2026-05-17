@@ -21,7 +21,6 @@
   - [Preview](#preview)
   - [Features](#features)
   - [Installation](#installation)
-    - [Windows SmartScreen](#windows-smartscreen)
   - [How It Works](#how-it-works)
   - [Configuration](#configuration)
   - [Building from Source](#building-from-source)
