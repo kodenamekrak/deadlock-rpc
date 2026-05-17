@@ -1,40 +1,36 @@
+#[cfg(windows)]
 pub fn alert(body: &str) {
-    platform::show(body);
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let body_owned = body.to_string();
+    std::thread::spawn(move || {
+        let title: Vec<u16> = OsStr::new("Deadlock RPC")
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let text: Vec<u16> = OsStr::new(&body_owned)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        unsafe {
+            winapi::um::winuser::MessageBoxW(
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                title.as_ptr(),
+                winapi::um::winuser::MB_OK
+                    | winapi::um::winuser::MB_ICONINFORMATION
+                    | winapi::um::winuser::MB_TOPMOST,
+            );
+        }
+    });
 }
 
 #[cfg(not(windows))]
-mod platform {
-    pub fn show(body: &str) {
-        let _ = notify_rust::Notification::new()
-            .appname("Deadlock RPC")
-            .summary("Deadlock RPC")
-            .body(body)
-            .show();
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    pub fn show(body: &str) {
-        let body = body.to_string();
-        // Spawn so the caller is not blocked waiting for the user to dismiss the dialog.
-        std::thread::spawn(move || {
-            use std::ffi::OsStr;
-            use std::os::windows::ffi::OsStrExt;
-            use winapi::um::winuser::{MessageBoxW, MB_ICONWARNING, MB_OK};
-
-            let to_wide = |s: &str| -> Vec<u16> {
-                OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
-            };
-
-            unsafe {
-                MessageBoxW(
-                    std::ptr::null_mut(),
-                    to_wide(&body).as_ptr(),
-                    to_wide("Deadlock RPC").as_ptr(),
-                    MB_ICONWARNING | MB_OK,
-                );
-            }
-        });
-    }
+pub fn alert(body: &str) {
+    let _ = notify_rust::Notification::new()
+        .appname("Deadlock RPC")
+        .summary("Deadlock RPC")
+        .body(body)
+        .show();
 }
