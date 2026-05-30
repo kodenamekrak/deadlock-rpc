@@ -24,8 +24,16 @@ struct ApiImages {
     hero_card_critical: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct HeroIndexEntry {
+    class_name: String,
+    name: String,
+}
+
 pub struct HeroCache {
     map: HashMap<String, HeroData>,
+    // class_name → display name, loaded at startup from the heroes index endpoint
+    hero_index: HashMap<String, String>,
     client: ureq::Agent,
     portrait_style: HeroPortraitStyle,
 }
@@ -35,7 +43,8 @@ impl HeroCache {
         let client = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(5))
             .build();
-        Self { map: HashMap::new(), client, portrait_style }
+        let hero_index = fetch_hero_index(&client);
+        Self { map: HashMap::new(), hero_index, client, portrait_style }
     }
 
     pub fn set_portrait_style(&mut self, style: HeroPortraitStyle) {
@@ -48,9 +57,10 @@ impl HeroCache {
     // Returns cached data if available, otherwise fetches from the API using the hero class_name.
     pub fn get_or_fetch(&mut self, hero_key: &str) -> Option<&HeroData> {
         use std::collections::hash_map::Entry;
+        let hero_index = &self.hero_index;
         match self.map.entry(hero_key.to_owned()) {
             Entry::Occupied(e) => Some(e.into_mut()),
-            Entry::Vacant(e) => match fetch(&self.client, hero_key, self.portrait_style) {
+            Entry::Vacant(e) => match fetch(&self.client, hero_key, self.portrait_style, hero_index) {
                 Ok(data) => {
                     info!("[api] Cached: {} → \"{}\"", hero_key, data.name);
                     Some(e.insert(data))
@@ -64,12 +74,33 @@ impl HeroCache {
     }
 }
 
-fn fetch(client: &ureq::Agent, hero_key: &str, portrait_style: HeroPortraitStyle) -> Result<HeroData, Box<dyn std::error::Error>> {
+fn fetch_hero_index(client: &ureq::Agent) -> HashMap<String, String> {
+    const URL: &str = "https://api.deadlock-api.com/v1/assets/heroes?only_active=true";
+    debug!("[api] Loading hero index from {URL}");
+    let result: Result<Vec<HeroIndexEntry>, Box<dyn std::error::Error>> =
+        (|| Ok(client.get(URL).call()?.into_json()?))();
+    match result {
+        Ok(entries) => {
+            let count = entries.len();
+            let map = entries.into_iter().map(|e| (e.class_name, e.name)).collect();
+            info!("[api] Loaded hero index: {count} heroes");
+            map
+        }
+        Err(err) => {
+            warn!("[api] Failed to load hero index, falling back to static dict: {err}");
+            HashMap::new()
+        }
+    }
+}
+
+fn fetch(client: &ureq::Agent, hero_key: &str, portrait_style: HeroPortraitStyle, hero_index: &HashMap<String, String>) -> Result<HeroData, Box<dyn std::error::Error>> {
     debug!("[api] Fetching: {hero_key}");
 
-    if let Ok(data) = fetch_by_name(client, hero_key, portrait_style) {
-        debug!("[api] Resolved via full key: {hero_key}");
-        return Ok(data);
+    if let Some(display_name) = hero_index.get(hero_key) {
+        debug!("[api] Index lookup: {hero_key} → \"{display_name}\"");
+        if let Ok(data) = fetch_by_name(client, display_name, portrait_style) {
+            return Ok(data);
+        }
     }
 
     let stripped = hero_key.trim_start_matches("hero_");
@@ -78,10 +109,9 @@ fn fetch(client: &ureq::Agent, hero_key: &str, portrait_style: HeroPortraitStyle
         return Ok(data);
     }
 
-    if let Some(display_name) = dict_lookup(hero_key) {
-        debug!("[api] Dict fallback: {hero_key} → \"{display_name}\"");
+    if let Some(display_name) = static_fallback(hero_key) {
+        debug!("[api] Static fallback: {hero_key} → \"{display_name}\"");
         if let Ok(data) = fetch_by_name(client, display_name, portrait_style) {
-            debug!("[api] Resolved via dict: {display_name}");
             return Ok(data);
         }
     }
@@ -89,8 +119,8 @@ fn fetch(client: &ureq::Agent, hero_key: &str, portrait_style: HeroPortraitStyle
     Err(format!("unknown hero: {hero_key}").into())
 }
 
-// Maps asset_key → display name to query the API with (e.g. "hero_geist" → "Lady Geist").
-fn dict_lookup(asset_key: &str) -> Option<&'static str> {
+// Backup mapping for when the hero index endpoint is unreachable at startup.
+fn static_fallback(asset_key: &str) -> Option<&'static str> {
     match asset_key {
         "hero_inferno"  => Some("Infernus"),
         "hero_gigawatt_prisoner" => Some("Seven"),
