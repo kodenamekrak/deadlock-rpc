@@ -308,7 +308,9 @@ fn main() {
 
     // Only install the shortcut in release builds so dev runs don't overwrite it with a debug path.
     #[cfg(not(debug_assertions))]
-    launcher::install_shortcut();
+    if !args.iter().any(|a| a == "--no-shortcut") {
+        launcher::install_shortcut();
+    }
 
     if !no_launch {
         launcher::launch_deadlock();
